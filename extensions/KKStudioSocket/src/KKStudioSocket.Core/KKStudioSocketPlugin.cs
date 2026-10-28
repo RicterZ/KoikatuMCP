@@ -22,7 +22,7 @@ namespace KKStudioSocket
     {
         public const string GUID = "KKStudioSocket";
         public const string Name = "KKStudioSocket";
-        public const string Version = "1.2.1";
+        public const string Version = "1.2.2";
 
         private const int DefaultPort = 8765;
         private const string DefaultPath = "/ws";

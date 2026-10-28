@@ -9,10 +9,11 @@ sys.path.insert(0, str(Path(__file__).parents[1] / 'scripts'))
 from animation_catalog import export, save
 
 class Client:
-    def __init__(self, corrupt=False):
-        self.rows = [dict(group=0, category=1, no=i, groupName='一般', categoryName='日常', name='歩き', origin='unknown', warnings=[]) for i in range(103)]
-        digest = hashlib.sha256(json.dumps(self.rows, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+    def __init__(self, corrupt=False, utf8=False):
+        self.rows = [dict(group=0, category=1, no=i, groupName='一般', categoryName='日常', name='歩き Weiß', origin='unknown', warnings=[]) for i in range(103)]
+        digest = hashlib.sha256(json.dumps(self.rows, sort_keys=True, ensure_ascii=not utf8).encode()).hexdigest()
         self.metadata = dict(catalogHash=digest, environment={'runtimeSession':'1:123'}, exportedAt='2026-10-28T00:00:00Z', entries=103, complete=True, namesComplete=True, warnings=[])
+        if utf8: self.metadata['hashEncoding']='utf8-json'
         self.corrupt = corrupt
     def call(self, name, **args):
         offset=args.get('offset',0)
@@ -31,6 +32,9 @@ class Tests(unittest.TestCase):
             self.assertIn('歩き',target.with_suffix('.csv').read_text(encoding='utf-8-sig'))
             self.assertEqual(json.loads(target.with_suffix('.metadata.json').read_text())['environment']['runtimeSession'],'1:123')
             with self.assertRaises(ValueError):save(snapshot,target)
+    def test_utf8_hash_with_latin1_and_japanese(self):
+        self.assertEqual(len(export(Client(utf8=True))['animations']),103)
+
     def test_changed_generation_refuses_mixed_export(self):
         with self.assertRaisesRegex(ValueError,'changed'): export(Client(corrupt=True))
 

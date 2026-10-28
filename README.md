@@ -25,7 +25,7 @@ Download the Windows paired ZIP from [Releases](https://github.com/RicterZ/Koika
    ```
 
    Substitute your actual game directory. The installer checks CharaStudio is closed, backs up an existing DLL, and installs only the Socket plugin. It does not install/replace the entire BepInEx folder.
-3. Start Studio. Check `BepInEx/LogOutput.log` contains `Loading [KKStudioSocket 1.2.1]`. An old loaded DLL is not updated by restarting the EXE.
+3. Start Studio. Check `BepInEx/LogOutput.log` contains `Loading [KKStudioSocket 1.2.2]`. An old loaded DLL is not updated by restarting the EXE.
 4. Start `KoikatuMCP.exe`. No separate .NET runtime is required for the paired self-contained Windows EXE. The default listener is **`http://0.0.0.0:8766/`**; connect a Streamable HTTP MCP client to `http://127.0.0.1:8766/`. For another machine, use the server machine's LAN IP. Keep this unauthenticated endpoint on a trusted network; it controls scene objects and reads host-side paths. The game WebSocket stays loopback-only by default.
 
    To bind HTTP only to localhost:
@@ -89,4 +89,8 @@ python -m unittest discover -s tests -v
 
 ## Validation status
 
-1.2.1 builds on Windows; 25 Python contract tests and installed IronPython/CLR mock execution passed. HTTP tool registration and game get calls were checked. Real standing → walking → standing was observed on 1.2.0 and original animation/speed/IK/FK restored; it was an in-place walk. **1.2.1 full catalog export, real asynchronous-time reset and actual MMDD bone-controller handoff remain pending a saved-scene Studio restart and acceptance test.** The release is marked prerelease for this reason; stubs and tool registration are not visual acceptance.
+1.2.2 fixes two real-runtime failures: IronPython ASCII JSON encoding of Latin-1 MOD filenames (for example U+00DF), and incorrect use of KK's `BaseCheck` for controller readiness. The adapter uses .NET Unicode file enumeration, UTF-8 JSON hashes (`hashEncoding=utf8-json`), actual loaded file/state checks and direct Animator state-hash replay. The cache utility verifies both legacy ASCII and new UTF-8 hashes. Verification errors include requested/observed actions, readiness and times; restore snapshots survive serialization/delivery failure.
+
+On 2026-10-28 the fixed adapter ran through Unity.Console in the existing Studio process, without restart or scene save/load. The full installed catalog exported 32,990 entries (zero skipped; one missing category-name warning); its hash was independently verified and JSON/CSV caches created. Same character: `立ち1` (0/0/1) → `歩く1` (0/3/0) → `立ち1`, all read back `normalizedTime=0`, with visual confirmation of standing and an in-place walk. Restore returned the original `初期ポーズ`, speed, IK/FK flags and exact captured time, then cleared the snapshot. Preserving IK/FK group preferences is intentional; `kinematicMode=0` releases their active control.
+
+**This verifies the new adapter in a real engine, not a loaded 1.2.2 HTTP plugin.** The existing process still loaded assembly 1.2.1.0. Protect/save the scene yourself, close Studio, run the installer and restart; confirm `Loading [KKStudioSocket 1.2.2]` before retesting via MCP. The EXE and DLL remain two separate programs, shipped in one paired distribution. The test scene had MMDD uninitialized and no motion controllers, so actual MMDD bone-control handoff/restore remains pending. The paired release remains a prerelease.

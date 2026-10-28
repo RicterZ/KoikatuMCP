@@ -37,7 +37,10 @@ def export(client):
         rows.extend(page['animations'])
     if len(rows) != first['total'] or len(rows) != metadata['entries']:
         raise ValueError('Export count mismatch')
-    digest = hashlib.sha256(json.dumps(rows, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+    encoding = metadata.get('hashEncoding', 'ascii-json')
+    if encoding not in ('ascii-json', 'utf8-json'):
+        raise ValueError('Unsupported catalog hash encoding')
+    digest = hashlib.sha256(json.dumps(rows, sort_keys=True, ensure_ascii=encoding == 'ascii-json').encode('utf-8')).hexdigest()
     if digest != metadata['catalogHash']:
         raise ValueError('Catalog hash mismatch')
     return {'metadata': metadata, 'animations': rows,

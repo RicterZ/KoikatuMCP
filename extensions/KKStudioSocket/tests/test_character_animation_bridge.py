@@ -79,7 +79,7 @@ class AnimationTests(unittest.TestCase):
         self.info = info
 
     def call(self, command, **kwargs):
-        scope = {'mmdd_request_json': json.dumps(dict(type='character_animation', command=command, **kwargs)), 'long': int, 'basestring': str}
+        scope = {'mmdd_request_json': json.dumps(dict(type='character_animation', command=command, **kwargs)), 'long': int, 'basestring': str, 'unicode': str}
         with patch.dict(sys.modules, self.modules):
             exec(compile(BRIDGE, '<animation bridge>', 'exec'), scope)
         return json.loads(scope['mmdd_response_json'])
@@ -99,6 +99,18 @@ class AnimationTests(unittest.TestCase):
         self.assertEqual(self.call('list', limit=101)['type'], 'error')
         self.assertEqual(self.call('list', offset=True)['type'], 'error')
         self.assertEqual(self.call('list', search=False)['type'], 'error')
+
+    def test_inventory_uses_dotnet_unicode_paths(self):
+        self.modules['UnityEngine'].Application.dataPath = '/game/恋活_Data'
+        self.modules['System.IO'] = types.SimpleNamespace(
+            Directory=types.SimpleNamespace(Exists=lambda p: True,
+                GetFiles=lambda p, pattern, option: [p + '/Wei\u00df_小春.zipmod']),
+            Path=types.SimpleNamespace(GetDirectoryName=lambda p: '/game', Combine=lambda a,b: a+'/'+b),
+            SearchOption=types.SimpleNamespace(AllDirectories=1),
+            FileInfo=lambda p: types.SimpleNamespace(Length=12, LastWriteTimeUtc=types.SimpleNamespace(Ticks=123)))
+        metadata = self.ok('list')['metadata']
+        self.assertEqual(metadata['environment']['inventoryFiles'], 2)
+        self.assertEqual(len(metadata['environment']['installationInventoryHash']), 64)
 
     def test_missing_names_return_slots_and_explicit_warnings(self):
         self.info.dicAnimeLoadInfo[20] = Dictionary({99: Dictionary({0: types.SimpleNamespace(name='orphan')})})
@@ -132,15 +144,15 @@ class AnimationTests(unittest.TestCase):
         entry = self.info.dicAnimeLoadInfo[0][1][3]
         entry.bundlePath, entry.fileName, entry.clip = 'bundle', 'file', 'walk'
         ready = [False]
-        self.obj.loadedAnimeInfo = types.SimpleNamespace(BaseCheck=lambda b, f: ready[0])
-        def play(clip, t):
-            self.assertEqual(clip, 'walk')
+        self.obj.loadedAnimeInfo = types.SimpleNamespace(baseFile=types.SimpleNamespace(bundlePath='bundle', fileName='file'), BaseCheck=lambda *a: False)
+        def play(state_hash, layer, t):
+            self.assertEqual((state_hash, layer), (123, 0))
             self.obj.charAnimeCtrl.normalizedTime = t
-        self.obj.charAnimeCtrl.Play = play
-        self.obj.charAnimeCtrl.animator = types.SimpleNamespace(Update=lambda dt: None)
+        self.obj.charAnimeCtrl.nameHadh = 123
+        self.obj.charAnimeCtrl.animator = types.SimpleNamespace(Play=play, Update=lambda dt: None, GetCurrentAnimatorStateInfo=lambda layer: types.SimpleNamespace(IsName=lambda clip: ready[0]))
         received = []
         request = dict(command='set', characterId=5, group=0, category=1, no=3)
-        scope = {'mmdd_request_json': json.dumps(request), 'long': int, 'basestring': str,
+        scope = {'mmdd_request_json': json.dumps(request), 'long': int, 'basestring': str, 'unicode': str,
                  'animation_send_response': received.append}
         with patch.dict(sys.modules, self.modules):
             exec(compile(BRIDGE, '<bridge>', 'exec'), scope)
@@ -156,14 +168,39 @@ class AnimationTests(unittest.TestCase):
         self.assertEqual(result['data']['normalizedTime'], 0)
         self.assertTrue(result['data']['normalizationVerified'])
 
+    def test_deferred_restore_serialization_or_send_failure_retains_snapshot(self):
+        self.acquire()
+        entry = self.info.dicAnimeLoadInfo[0][1][2]
+        entry.bundlePath, entry.fileName, entry.clip = 'bundle', 'file', 'stand'
+        self.obj.loadedAnimeInfo = types.SimpleNamespace(baseFile=types.SimpleNamespace(bundlePath='bundle', fileName='file'))
+        self.obj.charAnimeCtrl.nameHadh = 123
+        def play(state, layer, time): self.obj.charAnimeCtrl.normalizedTime = time
+        self.obj.charAnimeCtrl.animator = types.SimpleNamespace(Play=play, Update=lambda dt: None,
+            GetCurrentAnimatorStateInfo=lambda layer: types.SimpleNamespace(IsName=lambda clip: True))
+        received=[]
+        def send(response):
+            if json.loads(response)['type'] == 'success': raise IOError('closed socket')
+            received.append(response)
+        scope = {'mmdd_request_json': json.dumps(dict(command='control', characterId=5, mode='restore')),
+                 'long': int, 'basestring': str, 'unicode': str, 'animation_send_response': send}
+        with patch.dict(sys.modules, self.modules):
+            exec(compile(BRIDGE, '<bridge>', 'exec'), scope)
+            job, param = self.jobs.pop()
+            self.assertFalse(job(self.modules['vngameengine'].vnge_game, param))
+            self.assertTrue(job(self.modules['vngameengine'].vnge_game, param))
+        self.assertIn('closed socket',json.loads(received[0])['message'])
+        self.assertTrue(self.ok('get',characterId=5)['snapshotAvailable'])
+        self.assertFalse(self.gdata.mcp_animation_snapshots[5]['loading'])
+
     def test_deferred_timeout_does_not_claim_success_or_lose_snapshot(self):
         self.acquire()
         entry = self.info.dicAnimeLoadInfo[0][1][3]
         entry.bundlePath, entry.fileName, entry.clip = 'bundle', 'file', 'walk'
-        self.obj.loadedAnimeInfo = types.SimpleNamespace(BaseCheck=lambda b, f: False)
+        self.obj.loadedAnimeInfo = types.SimpleNamespace(baseFile=types.SimpleNamespace(bundlePath='old', fileName='old'))
+        self.obj.charAnimeCtrl.animator = types.SimpleNamespace(GetCurrentAnimatorStateInfo=lambda layer: types.SimpleNamespace(IsName=lambda clip: False))
         received = []
         scope = {'mmdd_request_json': json.dumps(dict(command='set', characterId=5, group=0, category=1, no=3)),
-                 'long': int, 'basestring': str, 'animation_send_response': received.append}
+                 'long': int, 'basestring': str, 'unicode': str, 'animation_send_response': received.append}
         with patch.dict(sys.modules, self.modules):
             exec(compile(BRIDGE, '<bridge>', 'exec'), scope)
             self.assertEqual(self.call('control', characterId=5, mode='restore')['type'], 'error')
@@ -171,6 +208,8 @@ class AnimationTests(unittest.TestCase):
             job, param = self.jobs[0]
             self.assertTrue(job(self.modules['vngameengine'].vnge_game, param))
         self.assertEqual(json.loads(received[0])['type'], 'error')
+        self.assertIn('observed=0/1/3', json.loads(received[0])['message'])
+        self.assertIn('controllerReady=False', json.loads(received[0])['message'])
         self.assertTrue(self.ok('get', characterId=5)['snapshotAvailable'])
         self.ok('control', characterId=5, mode='restore')
 

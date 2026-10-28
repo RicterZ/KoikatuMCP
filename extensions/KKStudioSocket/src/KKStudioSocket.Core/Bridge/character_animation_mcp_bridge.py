@@ -4,6 +4,7 @@ import math
 import hashlib
 import datetime
 import os
+import traceback
 
 
 def environment():
@@ -18,21 +19,27 @@ def environment():
             versions[str(name.Name)] = str(name.Version)
     inventory = []
     if hasattr(Application, 'dataPath'):
-        root = os.path.dirname(str(Application.dataPath))
-        for directory in ('mods', os.path.join('BepInEx', 'plugins')):
-            for folder, dirs, files in os.walk(os.path.join(root, directory)):
-                dirs.sort()
-                for filename in sorted(files):
-                    if filename.lower().endswith(('.zipmod', '.dll')):
-                        path = os.path.join(folder, filename)
-                        stat = os.stat(path)
-                        inventory.append((os.path.relpath(path, root).replace('\\', '/'), stat.st_size, stat.st_mtime))
+        from System.IO import Directory, FileInfo, Path, SearchOption
+        # Use .NET Unicode paths end to end. IronPython's os.path helpers can
+        # return byte strings even from a Unicode root; json cannot encode them
+        # reliably under Unity.Console's default codec.
+        root = unicode(Path.GetDirectoryName(Application.dataPath))
+        for directory in (u'mods', u'BepInEx\\plugins'):
+            folder = Path.Combine(root, directory)
+            if not Directory.Exists(folder):
+                continue
+            for path in sorted(Directory.GetFiles(folder, '*', SearchOption.AllDirectories)):
+                path = unicode(path)
+                if path.lower().endswith((u'.zipmod', u'.dll')):
+                    stat = FileInfo(path)
+                    relative = path[len(root) + 1:].replace(u'\\', u'/')
+                    inventory.append((relative, int(stat.Length), long(stat.LastWriteTimeUtc.Ticks)))
     return {'runtimeSession': str(process.Id) + ':' + str(process.StartTime.ToUniversalTime().Ticks),
             'unityVersion': str(Application.unityVersion), 'product': 'KK CharaStudio',
-            'vngeVersion': '42.9', 'adapterVersion': '1.2.1', 'assemblies': versions,
-            'installationInventoryHash': hashlib.sha256(json.dumps(inventory, ensure_ascii=True).encode('utf-8')).hexdigest(),
+            'vngeVersion': '42.9', 'adapterVersion': '1.2.2', 'assemblies': versions,
+            'installationInventoryHash': hashlib.sha256(json.dumps(inventory, ensure_ascii=False).encode('utf-8')).hexdigest(),
             'inventoryFiles': len(inventory),
-            'inventoryMethod': 'mods .zipmod and BepInEx/plugins .dll paths, sizes and modification times; not asset content hashes',
+            'inventoryMethod': 'mods .zipmod and BepInEx/plugins .dll Unicode paths, sizes and UTC modification ticks; not asset content hashes',
             'provenance': 'unknown; catalog includes installed base and MOD entries'}
 
 
@@ -97,8 +104,10 @@ def catalog(info, game, refresh=False):
                     skipped += 1
                     warnings.append({'group': group, 'category': category, 'no': no,
                                      'codes': ['skipped_entry'], 'message': str(error)})
-    encoded = json.dumps(rows, sort_keys=True, ensure_ascii=True).encode('utf-8')
-    metadata = {'schemaVersion': 1, 'exportedAt': datetime.datetime.utcnow().isoformat() + 'Z',
+    # IronPython's ASCII encoder misdecodes Latin-1 characters (e.g. U+00DF)
+    # as UTF-8 byte strings. Hash and transmit Unicode JSON as UTF-8 instead.
+    encoded = json.dumps(rows, sort_keys=True, ensure_ascii=False).encode('utf-8')
+    metadata = {'schemaVersion': 1, 'hashEncoding': 'utf8-json', 'exportedAt': datetime.datetime.utcnow().isoformat() + 'Z',
                 'environment': environment(), 'catalogHash': hashlib.sha256(encoded).hexdigest(),
                 'entries': len(rows), 'skipped': skipped, 'warnings': warnings,
                 'complete': skipped == 0, 'namesComplete': not warnings,
@@ -279,27 +288,45 @@ def defer_animation_result(request, result, send):
             if not objects.ContainsKey(request['characterId']) or objects[request['characterId']] != obj:
                 raise ValueError('Character changed while loading animation')
             frames[0] += 1
-            if Time.realtimeSinceStartup - started > 3:
-                raise ValueError('Animation did not load/reset within 3 seconds; restore saved control state')
-            if frames[0] < 2 or not obj.loadedAnimeInfo.BaseCheck(entry.bundlePath, entry.fileName):
-                return False
             ctrl = obj.charAnimeCtrl
-            ctrl.Play(entry.clip, target_time)
+            loaded = obj.loadedAnimeInfo.baseFile
+            # BaseCheck is not a (bundlePath, fileName) overload in KK. Compare
+            # the actual loaded controller and clip before resetting its state.
+            controller_ready = (loaded.bundlePath == entry.bundlePath and
+                                loaded.fileName == entry.fileName)
+            state_ready = ctrl.animator.GetCurrentAnimatorStateInfo(0).IsName(entry.clip)
+            if Time.realtimeSinceStartup - started > 3:
+                observed = obj.oiCharInfo.animeInfo
+                raise ValueError('Animation verification timed out; requested=%s/%s/%s '
+                                 'observed=%s/%s/%s controllerReady=%s stateReady=%s '
+                                 'normalizedTime=%s targetTime=%s; snapshot retained; retry restore' %
+                                 (group, category, no, observed.group, observed.category, observed.no,
+                                  controller_ready, state_ready, ctrl.normalizedTime, target_time))
+            if frames[0] < 2 or not controller_ready or not state_ready:
+                return False
+            # CharAnimeCtrl.Play can skip replaying an already active clip.
+            # Play the actual Animator state's hash, then evaluate without advancing.
+            ctrl.animator.Play(ctrl.nameHadh, 0, target_time)
             ctrl.animator.Update(0)
             actual = float(ctrl.normalizedTime)
             if abs(actual - target_time) > .05:
                 return False
             saved['loading'] = False
-            if restoring:
-                del game.gdata.mcp_animation_snapshots[request['characterId']]
             verified = dispatch({'command': 'get', 'characterId': request['characterId']})
             verified['command'] = request['command']
             verified['data']['normalizationVerified'] = True
             verified['data']['requestedStartTime'] = target_time
-            send(json.dumps(verified))
+            if restoring:
+                verified['data']['snapshotAvailable'] = False
+            encoded = json.dumps(verified, ensure_ascii=False)
+            send(encoded)
+            if restoring:
+                del game.gdata.mcp_animation_snapshots[request['characterId']]
         except Exception as error:
             saved['loading'] = False
-            send(json.dumps({'type': 'error', 'message': str(error)}))
+            print(traceback.format_exc())
+            send(json.dumps({'type': 'error', 'message': unicode(error),
+                             'snapshotAvailable': request['characterId'] in game.gdata.mcp_animation_snapshots}, ensure_ascii=False))
         return True
 
     game.append_update_job(finish, None)
@@ -312,6 +339,7 @@ try:
         defer_animation_result(request, result, animation_send_response)
         mmdd_response_json = None
     else:
-        mmdd_response_json = json.dumps(result)
+        mmdd_response_json = json.dumps(result, ensure_ascii=False)
 except Exception as error:
-    mmdd_response_json = json.dumps({'type': 'error', 'message': str(error)})
+    print(traceback.format_exc())
+    mmdd_response_json = json.dumps({'type': 'error', 'message': unicode(error)}, ensure_ascii=False)
