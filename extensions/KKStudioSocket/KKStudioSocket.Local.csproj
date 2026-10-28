@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net35</TargetFramework>
+    <AssemblyName>KK_KKStudioSocket</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <DefineConstants>TRACE;KK</DefineConstants>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="BepInEx"><HintPath>$(GameDir)\BepInEx\core\BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(GameDir)\CharaStudio_Data\Managed\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp-firstpass"><HintPath>$(GameDir)\CharaStudio_Data\Managed\Assembly-CSharp-firstpass.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(GameDir)\CharaStudio_Data\Managed\UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(GameDir)\CharaStudio_Data\Managed\UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="KKAPI"><HintPath>$(GameDir)\BepInEx\plugins\KKAPI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="websocket-sharp"><HintPath>$(GameDir)\BepInEx\plugins\websocket-sharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(GameDir)\BepInEx\plugins\Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Microsoft.Scripting"><HintPath>$(GameDir)\BepInEx\plugins\Console\Microsoft.Scripting.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Microsoft.Scripting.Core"><HintPath>$(GameDir)\BepInEx\plugins\Console\Microsoft.Scripting.Core.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <Import Project="src\KKStudioSocket.Core\KKStudioSocket.Core.projitems" Label="Shared" />
+</Project>

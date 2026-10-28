@@ -1,14 +1,17 @@
 using KoikatuMCP.Logging;
 using KoikatuMCP.Services;
 using KoikatuMCP.Tools;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-var builder = Host.CreateApplicationBuilder(args);
+// Streamable HTTP endpoint; override with KOIKATUMCP_URL, e.g. http://0.0.0.0:8766
+var url = Environment.GetEnvironmentVariable("KOIKATUMCP_URL") ?? "http://0.0.0.0:8766";
+
+var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddMcpServer()
-    .WithStdioServerTransport()
+    .WithHttpTransport()
     .WithToolsFromAssembly();
 
 builder.Services.AddTransient<WebSocketService>();
@@ -22,6 +25,8 @@ builder.Logging.AddConsole(options =>
 builder.Logging.AddProvider(new FileLoggerProvider(LogLevel.Information));
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 
-var host = builder.Build();
+var app = builder.Build();
 
-await host.RunAsync();
+app.MapMcp();
+
+app.Run(url);

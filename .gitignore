@@ -465,3 +465,24 @@ docker-compose*
 
 # Claude
 .claude/
+
+# Local environment, backups and binary/media assets
+.mcp.json
+source-sha256.json
+*.orig
+*.dll
+*.exe
+*.zip
+*.tar.gz
+*.png
+*.jpg
+*.jpeg
+*.wav
+*.mp4
+*.vmd
+*.pmx
+*.blend
+*.ipynb
+.env.*
+*.key
+*.pem

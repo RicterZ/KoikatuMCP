@@ -72,6 +72,31 @@ namespace KKStudioSocket.Models.Requests
     }
 
     [Serializable]
+    public class CharacterAnimationCommand : BaseCommand
+    {
+        public required string command;
+        public int? characterId;
+        public int? group;
+        public int? category;
+        public int? no;
+        public string? search;
+        public int offset;
+        public int limit = 50;
+        public bool refresh;
+        public float? speed;
+        public string? mode;
+    }
+
+    [Serializable]
+    public class MmddCommand : BaseCommand
+    {
+        public required string command;
+        public int? frame;
+        public string? path;
+        public int? cameraIndex;
+    }
+
+    [Serializable]
     public class ItemCommand : BaseCommand
     {
         public required string command;

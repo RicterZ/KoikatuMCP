@@ -1,0 +1,156 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET Framework
+      uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Setup NuGet
+      uses: nuget/setup-nuget@v1
+      with:
+        nuget-version: 'latest'
+    
+    - name: Restore NuGet packages
+      run: powershell.exe -ExecutionPolicy Bypass -File "build.ps1" restore
+      
+    - name: Build solution
+      run: powershell.exe -ExecutionPolicy Bypass -File "build.ps1" build ${{ matrix.configuration }}
+      
+    - name: Upload KK build artifacts
+      if: matrix.configuration == 'Release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: KK_KKStudioSocket-${{ github.sha }}
+        path: bin/KK_KKStudioSocket.dll
+        retention-days: 30
+        
+    - name: Upload KKS build artifacts  
+      if: matrix.configuration == 'Release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: KKS_KKStudioSocket-${{ github.sha }}
+        path: bin/KKS_KKStudioSocket.dll
+        retention-days: 30
+
+  package:
+    runs-on: windows-latest
+    needs: build
+    if: github.event_name == 'release'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    # Download artifacts from the build job (same workflow)
+    - name: Download KK artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: KK_KKStudioSocket-${{ github.sha }}
+        path: bin/
+        
+    - name: Download KKS artifact  
+      uses: actions/download-artifact@v4
+      with:
+        name: KKS_KKStudioSocket-${{ github.sha }}
+        path: bin/
+        
+    # Setup environment only for dependency collection
+    - name: Setup .NET Framework
+      uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Setup NuGet
+      uses: nuget/setup-nuget@v1
+      with:
+        nuget-version: 'latest'
+    
+    - name: Restore packages for dependencies
+      run: powershell.exe -ExecutionPolicy Bypass -File "build.ps1" restore
+        
+    - name: Create KK release package
+      run: |
+        # Create KK package
+        mkdir kk-package
+        copy bin\KK_KKStudioSocket.dll kk-package\
+        copy README.md kk-package\
+        copy README.ja.md kk-package\
+        copy LICENSE kk-package\
+        
+        # Get dependency DLLs from NuGet cache
+        $nugetCache = "$env:USERPROFILE\.nuget\packages"
+        
+        # Copy WebSocketSharp DLL
+        $wsSharpPath = "$nugetCache\websocketsharp\1.0.3-rc11\lib\websocket-sharp.dll"
+        if (Test-Path $wsSharpPath) {
+          copy $wsSharpPath kk-package\
+          echo "Copied WebSocketSharp for KK: $wsSharpPath"
+        }
+        
+        # Copy Newtonsoft.Json DLL  
+        $jsonPath = "$nugetCache\json.net.unity3d\9.0.1\lib\net35\Newtonsoft.Json.dll"
+        if (Test-Path $jsonPath) {
+          copy $jsonPath kk-package\
+          echo "Copied Newtonsoft.Json for KK: $jsonPath"
+        }
+        
+    - name: Create KKS release package
+      run: |
+        # Create KKS package
+        mkdir kks-package
+        copy bin\KKS_KKStudioSocket.dll kks-package\
+        copy README.md kks-package\
+        copy README.ja.md kks-package\
+        copy LICENSE kks-package\
+        
+        # Get dependency DLLs from NuGet cache
+        $nugetCache = "$env:USERPROFILE\.nuget\packages"
+        
+        # Copy WebSocketSharp DLL
+        $wsSharpPath = "$nugetCache\websocketsharp\1.0.3-rc11\lib\websocket-sharp.dll"
+        if (Test-Path $wsSharpPath) {
+          copy $wsSharpPath kks-package\
+          echo "Copied WebSocketSharp for KKS: $wsSharpPath"
+        }
+        
+        # Copy Newtonsoft.Json DLL  
+        $jsonPath = "$nugetCache\json.net.unity3d\9.0.1\lib\net35\Newtonsoft.Json.dll"
+        if (Test-Path $jsonPath) {
+          copy $jsonPath kks-package\
+          echo "Copied Newtonsoft.Json for KKS: $jsonPath"
+        }
+        
+    - name: Archive release packages
+      run: |
+        # Create separate zip files
+        powershell Compress-Archive -Path kk-package\* -DestinationPath KK-KKStudioSocket-${{ github.event.release.tag_name }}.zip
+        powershell Compress-Archive -Path kks-package\* -DestinationPath KKS-KKStudioSocket-${{ github.event.release.tag_name }}.zip
+        
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          KK-KKStudioSocket-${{ github.event.release.tag_name }}.zip
+          KKS-KKStudioSocket-${{ github.event.release.tag_name }}.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
